@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version 0.1 beta/test
+# Version 0.2 beta/test
 
 PRUSA_IP="192.168.1.xx"
 PRUSALINK_APIKEY="your.api.key"
@@ -53,25 +53,25 @@ get_info() {
 	status_response=$(curl -H "X-Api-Key: $PRUSALINK_APIKEY" -s $STATUS_API_URL)
 	# Vérifier si la requête de statut a réussi
 	if [ $? -ne 0 ]; then
-	  echo "Failed to retrieve status data from the API."
-	  exit 1
+		# echo "Failed to retrieve status data from the API."
+		jobstatus=offline
 	fi
 
 	# Récupérer les données JSON de l'API de job avec authentification
 	job_response=$(curl -H "X-Api-Key: $PRUSALINK_APIKEY" -s $JOB_API_URL)
 	# Vérifier si la requête de job a réussi
 	if [ $? -ne 0 ]; then
-	  echo "Failed to retrieve job data from the API."
-	  echo "$job_response"
-	  exit 1
+		# echo "Failed to retrieve job data from the API."
+		jobstatus=offline
 	fi
 
 	# Vérifier si la réponse de statut ou job est vide
 	if [ -z "$status_response" ]; then
-	  echo "Empty response from the status API."
-	  exit 1
+		# echo "Empty response from the status API."
+		jobstatus=offline
 	elif [ -z "$job_response" ]; then
-	  echo "Empty response from the job API."
+		# echo "Empty response from the job API."
+		jobstatus=online
 	fi
 
 	status_job_id=$(echo "$status_response" | jq -r '.job.id')
@@ -82,7 +82,9 @@ get_info() {
 	case "$status_printer_state" in
 		"PRINTING")	status_printer_state_fr="EN COURS D'IMPRESSION"	;;
 		"PAUSED")	status_printer_state_fr="EN PAUSE"				;;
+		"FINISHED")	status_printer_state_fr="FINI"					;;
 		"IDLE")		status_printer_state_fr="ANNULÉ"				;;
+		"")			status_printer_state_fr="HORS LIGNE" && status_printer_state="OFFLINE" ;;
 		*)			status_printer_state_fr="$status_printer_state"	;;
 	esac
 }
@@ -104,25 +106,28 @@ get_more_info() {
 
 	# Afficher les variables
 	echo "Printer State (État de l'imprimante): $status_printer_state / $status_printer_state_fr"
-	echo "Progress (Progression) : $status_progress %"
-	echo " "
-	echo "File Display [ID] Name: [$status_job_id] $job_file_display_name"
-	echo " "
-	echo "Time Printing (Temps d'impression): $(convertir_temps $status_time_printing)"
-	echo "Time Remaining (Temps restant): $(convertir_temps $status_time_remaining)"
-	echo " "
-	echo "Temp Nozzle (Température de la buse): $status_temp_nozzle °C / $status_target_nozzle °C"
-	echo "Temp Bed (Température du plateau): $status_temp_bed °C / $status_target_bed °C"
-	echo " "
-	echo "Speed (Vitesse d'impression): $status_speed %"
-	echo "Flow (Flux d'impression): $status_flow %"
-	echo " "
-	echo "Axis Z (Hauteur en z): $status_axis_z mm"
-	echo " "
-	echo "Fan Hotend (Vitesse du ventilateur de l'extrudeur): $status_fan_hotend tr/min"
-	echo "Status Fan Print (Vitesse du ventilateur l'impression): $status_fan_print tr/min"
+	if [ -z "$jobstatus" ]; then
+	  	echo "Progress (Progression) : $status_progress %"
+		echo " "
+		echo "File Display [ID] Name: [$status_job_id] $job_file_display_name"
+	fi
+	if [ ! "$jobstatus" == "offline" ]; then
+		echo " "
+		echo "Time Printing (Temps d'impression): $(convertir_temps $status_time_printing)"
+		echo "Time Remaining (Temps restant): $(convertir_temps $status_time_remaining)"
+		echo " "
+		echo "Temp Nozzle (Température de la buse): $status_temp_nozzle °C / $status_target_nozzle °C"
+		echo "Temp Bed (Température du plateau): $status_temp_bed °C / $status_target_bed °C"
+		echo " "
+		echo "Speed (Vitesse d'impression): $status_speed %"
+		echo "Flow (Flux d'impression): $status_flow %"
+		echo " "
+		echo "Axis Z (Hauteur en z): $status_axis_z mm"
+		echo " "
+		echo "Fan Hotend (Vitesse du ventilateur de l'extrudeur): $status_fan_hotend tr/min"
+		echo "Status Fan Print (Vitesse du ventilateur l'impression): $status_fan_print tr/min"
+	fi
 }
-
 get_info
 
 case "$1" in
