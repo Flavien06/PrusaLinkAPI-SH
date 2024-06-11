@@ -1,8 +1,12 @@
 #!/bin/bash
-# Version 0.2 beta/test
+# Version 0.3 beta/test
 
 PRUSA_IP="192.168.1.xx"
 PRUSALINK_APIKEY="your.api.key"
+
+PRUSA_POWERON="/home/pi/prusapoweron" # <- Insert your power on console command or script location
+PRUSA_POWEROFF="/home/pi/prusapoweroff" # <- Insert your power off console command or script location
+
 ###################################
 
 STATUS_API_URL="http://$PRUSA_IP/api/v1/status"
@@ -45,6 +49,9 @@ show_help() {
     echo "  pause       Pause the current print job."
     echo "  resume      Resume a paused print job."
     echo "  info        Show detailed information about the current print job and printer status."
+    echo "  remaining   Wait for the current print job to finish and display a progress bar."
+    echo "  on          Power on the printer."
+    echo "  off         Power off the printer (if idle and safe to do so)."
     echo "  help        Show this help message."
 }
 
@@ -83,7 +90,7 @@ get_info() {
 		"PRINTING")	status_printer_state_fr="EN COURS D'IMPRESSION"	;;
 		"PAUSED")	status_printer_state_fr="EN PAUSE"				;;
 		"FINISHED")	status_printer_state_fr="FINI"					;;
-		"IDLE")		status_printer_state_fr="ANNULÉ"				;;
+		"IDLE")		status_printer_state_fr="REPOS"				;;
 		"")			status_printer_state_fr="HORS LIGNE" && status_printer_state="OFFLINE" ;;
 		*)			status_printer_state_fr="$status_printer_state"	;;
 	esac
@@ -103,6 +110,31 @@ get_more_info() {
 	status_fan_hotend=$(echo "$status_response" | jq -r '.printer.fan_hotend')
 	status_fan_print=$(echo "$status_response" | jq -r '.printer.fan_print')
 	job_file_display_name=$(echo "$job_response" | jq -r '.file.display_name')
+	
+	# Fonction pour calculer le pourcentage en évitant la division par zéro et les valeurs vides
+	calculate_percentage() {
+		local current_temp="$1"
+		local target_temp="$2"
+		# Vérifiez si les valeurs sont vides ou non définies
+		if [ -z "$current_temp" ] || [ -z "$target_temp" ]; then
+			echo "0"
+		elif [ "$target_temp" -eq 0 ]; then
+			echo "0"
+		else
+			echo "scale=2; ($current_temp / $target_temp) * 100" | bc
+		fi
+	}
+	# Assurez-vous que les valeurs sont définies
+	status_temp_nozzle="${status_temp_nozzle:-0}"
+	status_target_nozzle="${status_target_nozzle:-0}"
+	status_temp_bed="${status_temp_bed:-0}"
+	status_target_bed="${status_target_bed:-0}"
+	# Calculez les pourcentages de chauffe en évitant les divisions par zéro et les valeurs vides
+	nozzle_percentage=$(calculate_percentage "$status_temp_nozzle" "$status_target_nozzle")
+	bed_percentage=$(calculate_percentage "$status_temp_bed" "$status_target_bed")
+	# Arrondissez les pourcentages de chauffe
+	nozzle_percentage=$(echo "$nozzle_percentage" | awk '{printf "%.0f\n", $0}')
+	bed_percentage=$(echo "$bed_percentage" | awk '{printf "%.0f\n", $0}')
 
 	# Afficher les variables
 	echo "Printer State (État de l'imprimante): $status_printer_state / $status_printer_state_fr"
@@ -114,18 +146,19 @@ get_more_info() {
 	if [ ! "$jobstatus" == "offline" ]; then
 		echo " "
 		echo "Time Printing (Temps d'impression): $(convertir_temps $status_time_printing)"
-		echo "Time Remaining (Temps restant): $(convertir_temps $status_time_remaining)"
+		echo "Time Remaining (Temps restant):     $(convertir_temps $status_time_remaining)"
 		echo " "
-		echo "Temp Nozzle (Température de la buse): $status_temp_nozzle °C / $status_target_nozzle °C"
-		echo "Temp Bed (Température du plateau): $status_temp_bed °C / $status_target_bed °C"
+		echo "Temp Nozzle (Température de la buse): $status_temp_nozzle °C / $status_target_nozzle °C ($nozzle_percentage%)"
+		echo "Temp Bed (Température du plateau):    $status_temp_bed °C / $status_target_bed °C ($bed_percentage%)"
+
 		echo " "
 		echo "Speed (Vitesse d'impression): $status_speed %"
-		echo "Flow (Flux d'impression): $status_flow %"
+		echo "Flow (Flux d'impression):     $status_flow %"
 		echo " "
 		echo "Axis Z (Hauteur en z): $status_axis_z mm"
 		echo " "
 		echo "Fan Hotend (Vitesse du ventilateur de l'extrudeur): $status_fan_hotend tr/min"
-		echo "Status Fan Print (Vitesse du ventilateur l'impression): $status_fan_print tr/min"
+		echo "Fan Print (Vitesse du ventilateur l'impression):    $status_fan_print tr/min"
 	fi
 }
 get_info
@@ -145,8 +178,7 @@ case "$1" in
         echo "Job with ID $status_job_id paused."
 		get_info
 		echo "Printer State: $status_printer_state / $status_printer_state_fr ($status_progress %)"
-		sleep 5
-        exit 0 ;;
+		sleep 5	;;
     
     "resume")
         echo "Printer State: $status_printer_state / $status_printer_state_fr ($status_progress %)"
@@ -162,21 +194,55 @@ case "$1" in
         echo "Job with ID $status_job_id resumed."
 		get_info
 		echo "Printer State: $status_printer_state / $status_printer_state_fr ($status_progress %)"
-		sleep 5
-        exit 0 ;;
+		sleep 5	;;
 		
     "help")
-		show_help
-        exit 0 ;;
+		show_help ;;
 		
     "info" | "telemetrie" )
-		get_more_info
-        exit 0 ;;
+		get_more_info ;;
+		
+	"remaining" )
+		echo "Printer State (État de l'imprimante): $status_printer_state / $status_printer_state_fr"
+		status_time_remaining=$(echo "$status_response" | jq -r '.job.time_remaining')
+		if [ ! -z "$status_time_remaining" ]; then
+			status_time_remaining="1"
+		fi
+		echo "Time Remaining (Temps restant): $(convertir_temps $status_time_remaining)"
+		while true; do echo -n .; sleep 1; done | pv -s $status_time_remaining -S -F '%t %p' > /dev/null ;;
+		
+
+	"on" | "poweron" )
+		echo "Printer State (État de l'imprimante): $status_printer_state / $status_printer_state_fr"
+		if [ "$status_printer_state" == "OFFLINE" ]; then
+			echo "	=> POWER ON" 
+			$PRUSA_POWERON
+		fi
+		;;
+		
+	"off" | "poweroff" )
+		echo "Printer State (État de l'imprimante): $status_printer_state / $status_printer_state_fr"
+		if [ "$status_printer_state" == "OFFLINE" ]; then
+			echo "" > /dev/null
+		elif [ "$status_printer_state" == "IDLE" ]; then
+			get_more_info  > /dev/null
+			echo " Temp Nozzle (Température de la buse): $status_temp_nozzle °C / $status_target_nozzle °C ($nozzle_percentage%)"
+			echo " Temp Bed (Température du plateau):    $status_temp_bed °C / $status_target_bed °C ($bed_percentage%)"
+			echo " Fan Hotend (Vitesse du ventilateur de l'extrudeur): $status_fan_hotend tr/min"
+			echo " Fan Print (Vitesse du ventilateur l'impression): $status_fan_print tr/min"
+			if [ "$nozzle_percentage" == "0" ] && [ "$bed_percentage" == "0" ] && [ "$status_fan_hotend" == "0" ] && [ "$status_fan_print" == "0" ] ; then
+				echo "	=> POWER OFF" 
+				$PRUSA_POWEROFF
+			else
+				echo "Nozzle or Bed is Hot, please wait..."
+			fi
+		else
+			echo "Your Prusa is not IDLE / REPOS"
+		fi
+		;;
+		
 	*)
 		show_help
 		echo "" && echo "______________________________________" &&	echo ""
-		get_more_info
-        exit 0 ;; 
+		get_more_info ;; 
 esac
-
-exit 0
