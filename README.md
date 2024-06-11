@@ -45,6 +45,25 @@ This Bash script allows you to control and monitor a Prusa 3D printer via the Pr
     ~/bin/prusalink.sh info
     ```
 
+- Wait for the current print job to finish and display a progress bar:
+
+    ```bash
+    ~/bin/prusalink.sh remaining
+    ```
+
+- Power on the printer (Need à power on script):
+
+    ```bash
+    ~/bin/prusalink.sh on
+    ```
+
+- Power off the printer (if safe) (Need à power off script):
+
+    ```bash
+    ~/bin/prusalink.sh off
+    ```
+  
+
 ### Example Output "prusalink.sh info"
 ```plaintext
 Printer State (État de l'imprimante): PRINTING / EN COURS D'IMPRESSION
@@ -113,6 +132,24 @@ Ce script Bash permet de contrôler et de surveiller une imprimante 3D Prusa via
 
     ```bash
     ~/bin/prusalink.sh info
+    ```
+    
+- Afficher des informations détaillées :
+
+    ```bash
+    ~/bin/prusalink.sh remaining
+    ```
+
+ - Allumer l'imprimante (Besoin d'un script, prise connecter par exemple) :
+
+    ```bash
+    ~/bin/prusalink.sh on
+    ```
+    
+ - Éteindre l'imprimante (Besoin d'un script, prise connecter par exemple) :
+
+    ```bash
+    ~/bin/prusalink.sh off
     ```
 
 ### Example avec "prusalink.sh info"
